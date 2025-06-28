@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/Nabinlamsal/fiber-postgress/controllers"
+	"github.com/Nabinlamsal/fiber-postgress/middleware"
 	"github.com/Nabinlamsal/fiber-postgress/models"
 	"github.com/Nabinlamsal/fiber-postgress/storage"
 	"github.com/gofiber/fiber/v2"
@@ -13,11 +15,6 @@ import (
 	"gorm.io/gorm"
 )
 
-//	type Notes struct {
-//		Title   string `json:"title"`
-//		Content string `json:"content"`
-//		Creator string `json:"creator"`
-//	}
 type Repo struct {
 	DB *gorm.DB
 }
@@ -68,12 +65,12 @@ func (r *Repo) DeleteNotes(context *fiber.Ctx) error {
 			})
 		return nil
 	}
-	err := r.DB.Delete(&notesModel, id)
+	err := r.DB.Delete(&notesModel, id).Error
 	if err != nil {
 		context.Status(http.StatusBadRequest).JSON(&fiber.Map{
 			"message": "could not delete Notes",
 		})
-		return err.Error
+		return nil
 	}
 	context.Status(http.StatusOK).JSON(&fiber.Map{
 		"message": "notes deleted successfully",
@@ -112,7 +109,6 @@ func (r *Repo) SetupRoutes(app *fiber.App) {
 	api.Delete("/delete_notes/:id", r.DeleteNotes)
 	api.Get("/get_notes/:id", r.GetNotes)
 	api.Get("/notes", r.GetAllNotes)
-
 }
 
 func main() {
@@ -137,16 +133,31 @@ func main() {
 		log.Fatal("Could not connect to the Database!")
 	}
 
-	if err := models.MigrateNotes(db); err != nil {
-		log.Fatal("Could not migrate database!")
-	}
-
 	r := Repo{
 		DB: db,
 	}
-
 	app := fiber.New()
 	r.SetupRoutes(app)
+
+	//migrating user table
+	if err := db.AutoMigrate(&models.User{}); err != nil {
+		log.Fatal("Migration failed")
+
+		if err := models.MigrateNotes(db); err != nil {
+			log.Fatal("Could not migrate database!")
+		}
+
+	}
+	//routes for register and login
+	app.Post("/auth/register", controllers.Register(db))
+	app.Post("/auth/login", controllers.Login(db))
+
+	// Protected test route
+	app.Get("/auth", middleware.Protected(), func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"message": "You are inside the protected route!",
+		})
+	})
 	app.Listen(":8000")
 }
 
